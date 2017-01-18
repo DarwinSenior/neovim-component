@@ -1,4 +1,4 @@
-/// <reference path="../typings/browser.d.ts" />
+/// <reference path="../typings/index.d.ts" />
 
 declare namespace NodeJS {
     interface Global {
@@ -14,6 +14,3 @@ interface String {
     repeat(n: number): string;
 }
 
-interface KeyboardEvent {
-    code: string;
-}

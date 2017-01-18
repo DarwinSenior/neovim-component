@@ -3,17 +3,19 @@ import {inputToNeovim, notifyFocusChanged} from './actions';
 import log from '../log';
 
 const OnDarwin = global.process.platform === 'darwin';
+const IsAlpha = /^[a-zA-Z]$/;
 
 export default class NeovimInput {
     element: HTMLInputElement;
     ime_running: boolean;      // XXX: Local state!
 
     static shouldIgnoreOnKeydown(event: KeyboardEvent) {
-        const {ctrlKey, shiftKey, altKey, keyCode} = event;
-        return !ctrlKey && !altKey ||
+        const {ctrlKey, shiftKey, altKey, keyCode, metaKey} = event;
+        return !ctrlKey && !altKey && !metaKey ||
                shiftKey && keyCode === 16 ||
                ctrlKey && keyCode === 17 ||
-               altKey && keyCode === 18;
+               altKey && keyCode === 18 ||
+               metaKey && keyCode === 91;
     }
 
     // Note:
@@ -66,9 +68,10 @@ export default class NeovimInput {
 
         if (key.length === 1) {
             switch (key) {
-                case '<':            return 'LT';
-                case '\0':           return 'Nul';
-                default:             return null;
+                case '<':  return event.ctrlKey || event.altKey ? 'LT' : null;
+                case ' ':  return 'Space';
+                case '\0': return 'Nul';
+                default:   return null;
             }
         }
 
@@ -116,6 +119,12 @@ export default class NeovimInput {
                     // Note:
                     // When <C-m> is input (77 is key code of 'm')
                     return 'm';
+                } else if (ctrl && key_code === 67) {
+                    // XXX:
+                    // This is workaround for a bug of Chromium.  Ctrl+c emits wrong KeyboardEvent.key.
+                    // (It should be "\uxxxx" but actually "Enter")
+                    // https://github.com/rhysd/NyaoVim/issues/37
+                    return 'c';
                 } else {
                     return 'CR';
                 }
@@ -137,7 +146,10 @@ export default class NeovimInput {
     }
 
     static getVimSpecialCharInput(event: KeyboardEvent) {
-        const special_char = event.key === undefined ?
+        const should_fallback =
+            (event.key === undefined) ||
+            (event.key === '\0' && event.keyCode !== 0);
+        const special_char = should_fallback ?
                         NeovimInput.getVimSpecialCharFromKeyCode(event.keyCode, event.shiftKey) :
                         NeovimInput.getVimSpecialCharFromKey(event);
         if (!special_char) {
@@ -147,6 +159,9 @@ export default class NeovimInput {
         let vim_input = '<';
         if (event.ctrlKey) {
             vim_input += 'C-';
+        }
+        if (event.metaKey) {
+            vim_input += 'D-';
         }
         if (event.altKey) {
             vim_input += 'A-';
@@ -159,19 +174,48 @@ export default class NeovimInput {
         return vim_input;
     }
 
+    static replaceKeyToAvoidCtrlShiftSpecial(ctrl: boolean, shift: boolean, key: string) {
+        if (!ctrl || shift) {
+            return key;
+        }
+
+        // Note:
+        // These characters are especially replaced in Vim frontend.
+        //     https://github.com/vim/vim/blob/d58b0f982ad758c59abe47627216a15497e9c3c1/src/gui_w32.c#L1956-L1989
+        // Issue:
+        //     https://github.com/rhysd/NyaoVim/issues/87
+        switch (key) {
+            case '6': return '^';
+            case '-': return '_';
+            case '2': return '@';
+            default:  return key;
+        }
+    }
+
     static getVimInputFromKeyCode(event: KeyboardEvent) {
-        let vim_input = '<';
+        let modifiers = '';
         if (event.ctrlKey) {
-            vim_input += 'C-';
+            modifiers += 'C-';
+        }
+        if (event.metaKey) {
+            modifiers += 'D-';
         }
         if (event.altKey) {
-            vim_input += 'A-';
+            modifiers += 'A-';
         }
         // Note: <LT> is a special case where shift should not be handled.
         if (event.shiftKey) {
-            vim_input += 'S-';
+            modifiers += 'S-';
         }
-        vim_input += String.fromCharCode(event.keyCode).toLowerCase() + '>';
+        let vim_input =
+            NeovimInput.replaceKeyToAvoidCtrlShiftSpecial(
+                event.ctrlKey,
+                event.shiftKey,
+                String.fromCharCode(event.keyCode).toLowerCase(),
+            );
+        if (modifiers !== '') {
+            vim_input = `<${modifiers}${vim_input}>`;
+        }
         return vim_input;
     }
 
@@ -181,20 +225,21 @@ export default class NeovimInput {
         this.element = document.querySelector('.neovim-input') as HTMLInputElement;
         this.element.addEventListener('compositionstart', this.startComposition.bind(this));
         this.element.addEventListener('compositionend', this.endComposition.bind(this));
-        this.element.addEventListener('keydown', this.onInsertControlChar.bind(this));
-        this.element.addEventListener('input', this.onInsertNormalChar.bind(this));
+        this.element.addEventListener('keydown', this.onInputNonText.bind(this));
+        this.element.addEventListener('input', this.onInputText.bind(this));
         this.element.addEventListener('blur', this.onBlur.bind(this));
         this.element.addEventListener('focus', this.onFocus.bind(this));
+        this.store.on('cursor', this.updateElementPos.bind(this));
 
         this.focus();
     }
 
-    startComposition(event: Event) {
+    startComposition(_: Event) {
         log.debug('start composition');
         this.ime_running = true;
     }
 
-    endComposition(event: Event) {
+    endComposition(_: Event) {
         log.debug('end composition');
         this.ime_running = false;
     }
@@ -205,16 +250,28 @@ export default class NeovimInput {
 
     onFocus() {
         this.store.dispatcher.dispatch(notifyFocusChanged(true));
+
+        // Note:
+        // Neovim frontend has responsiblity to emit 'FocusGained'.
+        // :execute 'normal!' "\<FocusGained>" is available.
+        // (it seems undocumented.)
+        this.store.dispatcher.dispatch(inputToNeovim('<FocusGained>'));
     }
 
     onBlur(e: Event) {
         e.preventDefault();
         this.store.dispatcher.dispatch(notifyFocusChanged(false));
+
+        // Note:
+        // Neovim frontend has responsiblity to emit 'FocusLost'.
+        // :execute 'normal!' "\<FocusLost>" is available.
+        // (it seems undocumented.)
+        this.store.dispatcher.dispatch(inputToNeovim('<FocusLost>'));
     }
 
     // Note:
     // Assumes keydown event is always fired before input event
-    onInsertControlChar(event: KeyboardEvent) {
+    onInputNonText(event: KeyboardEvent) {
         log.debug('Keydown event:', event);
         if (this.ime_running) {
             log.debug('IME is running.  Input canceled.');
@@ -231,12 +288,24 @@ export default class NeovimInput {
             return;
         }
 
-        if (event.altKey && OnDarwin && this.store.mode === 'normal') {
+        const should_osx_workaround = OnDarwin && event.altKey && !event.ctrlKey && this.store.mode === 'normal';
+        if (this.store.alt_key_disabled && event.altKey) {
+            // Note: Overwrite 'altKey' to false to disable alt key input.
+            Object.defineProperty(event, 'altKey', {value: false});
+        }
+        if (this.store.meta_key_disabled && event.metaKey) {
+            // Note:
+            // Simply ignore input with metakey if metakey is disabled.  This aims to delegate the key input
+            // to menu items on OS X.
+            return;
+        }
+
+        if (should_osx_workaround) {
             // Note:
             //
             // In OS X, option + {key} sequences input special characters which can't be
             // input with keyboard normally.  (e.g. option+a -> å)
-            // MacVim accepts the special characters only in insert mode, otherwise <A-x>
+            // MacVim accepts the special characters only in insert mode, otherwise <A-{char}>
             // is emitted.
             //
             this.inputToNeovim(NeovimInput.getVimInputFromKeyCode(event), event);
@@ -245,15 +314,32 @@ export default class NeovimInput {
 
         if (event.key) {
             if (event.key.length === 1) {
-                let input = event.key;
-                if (event.altKey) {
-                    // Note:
-                    // KeyboardEvent.key considers Ctrl key and Shift key because
-                    // they're reflected to key code value.  But Alt key is not considered.
-                    // So we should care.
-                    input = `<A-${input}>`;
+                let input = '<';
+                if (event.ctrlKey) {
+                    input += 'C-';
                 }
-                this.inputToNeovim(input, event);
+                if (event.metaKey) {
+                    input += 'D-';
+                }
+                if (event.altKey) {
+                    input += 'A-';
+                }
+                if (event.shiftKey && IsAlpha.test(event.key)) {
+                    // Note:
+                    // If input is not an alphabetical character,  it already considers
+                    // Shift modifier.
+                    //  e.g. Ctrl+Shift+2 -> event.key == '@'
+                    // But for alphabets, Vim ignores the case.  For example <C-s> is
+                    // equivalent to <C-S>.  So we need to specify <C-S-s> or <C-S-S>.
+                    input += 'S-';
+                }
+                if (input === '<') {
+                    // Note: No modifier was pressed
+                    this.inputToNeovim(event.key, event);
+                } else {
+                    const key = NeovimInput.replaceKeyToAvoidCtrlShiftSpecial(event.ctrlKey, event.shiftKey, event.key);
+                    this.inputToNeovim(input + key + '>', event);
+                }
             } else {
                 log.warn("Invalid key input on 'keydown': ", event.key);
             }
@@ -270,10 +356,12 @@ export default class NeovimInput {
         event.preventDefault();
         event.stopPropagation();
         const t = event.target as HTMLInputElement;
-        t.value = '';
+        if (t.value) {
+            t.value = '';
+        }
     }
 
-    onInsertNormalChar(event: KeyboardEvent) {
+    onInputText(event: KeyboardEvent) {
         log.debug('Input event:', event);
 
         if (this.ime_running) {
@@ -283,10 +371,22 @@ export default class NeovimInput {
 
         const t = event.target as HTMLInputElement;
         if (t.value === '') {
-            log.warn('onInsertNormalChar: Empty');
+            log.warn('onInputText: Empty');
             return;
         }
 
-        this.inputToNeovim(t.value, event);
+        const input = t.value !== '<' ? t.value : '<LT>';
+        this.inputToNeovim(input, event);
+    }
+
+    updateElementPos() {
+        const {line, col} = this.store.cursor;
+        const {width, height} = this.store.font_attr;
+
+        const x = col * width;
+        const y = line * height;
+
+        this.element.style.left = x + 'px';
+        this.element.style.top = y + 'px';
     }
 }

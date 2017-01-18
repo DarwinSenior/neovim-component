@@ -12,6 +12,7 @@ export interface HighlightSet {
     bg?: string;
     bold?: boolean;
     fg?: string;
+    special?: string;
     foreground?: number;
     italic?: boolean;
     reverse?: boolean;
@@ -28,38 +29,47 @@ export declare enum Kind {
     Bell = 0,
     BusyStart = 1,
     BusyStop = 2,
-    ClearAll = 3,
-    ClearEOL = 4,
-    Cursor = 5,
-    DisableMouse = 6,
-    DragEnd = 7,
-    DragStart = 8,
-    DragUpdate = 9,
-    EnableMouse = 10,
-    Highlight = 11,
-    Input = 12,
-    Mode = 13,
-    PutText = 14,
-    Resize = 15,
-    ScrollScreen = 16,
-    SetIcon = 17,
-    SetScrollRegion = 18,
-    SetTitle = 19,
-    UpdateBG = 20,
-    UpdateFG = 21,
-    UpdateFontFace = 22,
-    UpdateFontPx = 23,
-    UpdateFontSize = 24,
-    UpdateScreenBounds = 25,
-    UpdateScreenSize = 26,
-    WheelScroll = 27,
-    FocusChanged = 28,
+    ChangeCursorDrawDelay = 3,
+    ClearAll = 4,
+    ClearEOL = 5,
+    Cursor = 6,
+    DisableMouse = 7,
+    DisableAltKey = 8,
+    DisableMetaKey = 9,
+    DragEnd = 10,
+    DragStart = 11,
+    DragUpdate = 12,
+    EnableMouse = 13,
+    Highlight = 14,
+    Input = 15,
+    Mode = 16,
+    PutText = 17,
+    Resize = 18,
+    ScrollScreen = 19,
+    SetIcon = 20,
+    SetScrollRegion = 21,
+    SetTitle = 22,
+    StartBlinkCursor = 23,
+    StopBlinkCursor = 24,
+    UpdateBG = 25,
+    UpdateFG = 26,
+    UpdateSP = 27,
+    UpdateFontFace = 28,
+    updateLineHeight = 29,
+    UpdateFontPx = 30,
+    UpdateFontSize = 31,
+    UpdateScreenBounds = 32,
+    UpdateScreenSize = 33,
+    WheelScroll = 34,
+    FocusChanged = 35,
 }
 export interface ActionType {
     type: Kind;
     col?: number;
     color?: number;
     cols?: number;
+    delay?: number;
+    disabled?: boolean;
     draw_width?: number;
     draw_height?: number;
     event?: MouseEvent | WheelEvent;
@@ -108,6 +118,10 @@ export declare function updateForeground(color: number): {
     color: number;
 };
 export declare function updateBackground(color: number): {
+    type: Kind;
+    color: number;
+};
+export declare function updateSpecialColor(color: number): {
     type: Kind;
     color: number;
 };
@@ -196,12 +210,29 @@ export declare function notifyFocusChanged(focused: boolean): {
     type: Kind;
     focused: boolean;
 };
+export declare function disableAltKey(disabled: boolean): {
+    type: Kind;
+    disabled: boolean;
+}
+export declare function disableMetaKey(disabled: boolean): {
+    type: Kind;
+    disabled: boolean;
+}
+export declare function changeCursorDrawDelay(delay: number): {
+    type: Kind;
+    delay: number;
+}
+export declare function startBlinkCursor(): {
+    type: Kind;
+}
+export declare function stopBlinkCursor(): {
+    type: Kind;
+}
 
 export class NeovimCursor {
-    element: HTMLDivElement;
-    constructor(store: NeovimStore);
+    constructor(store: NeovimStore, screen_ctx: CanvasRenderingContext2D);
     updateSize(): void;
-    updateColor(): void;
+    redraw(): void;
     onModeChanged(): void;
     updateCursorPos(): void;
 }
@@ -231,7 +262,7 @@ export class NeovimProcess {
     onRequested(method: string, args: RPCValue[], response: RPCValue): void;
     onNotified(method: string, args: RPCValue[]): void;
     onDisconnected(): void;
-    finalize(): void;
+    finalize(): Promise<void>;
 }
 
 export class ScreenDrag {
@@ -295,6 +326,7 @@ export interface Cursor {
 export interface FontAttributes {
     fg: string;
     bg: string;
+    sp: string;
     bold: boolean;
     italic: boolean;
     underline: boolean;
@@ -308,6 +340,9 @@ export interface FontAttributes {
 }
 export declare type DispatcherType = Dispatcher<ActionType>;
 export class NeovimStore extends EventEmitter {
+    blink_cursor: boolean;
+    cursor_blink_interval: number;
+    cursor_draw_delay: number;
     dispatch_token: string;
     size: Size;
     focused: boolean;
@@ -331,7 +366,15 @@ export class Neovim extends EventEmitter {
     process: NeovimProcess;
     screen: NeovimScreen;
     store: NeovimStore;
-    constructor(command: string, argv: string[], font: string, font_size: number, line_height: number);
+    constructor(
+        command: string,
+        argv: string[],
+        font: string,
+        font_size: number,
+        line_height: number,
+        blink_cursor: boolean,
+        window_title: string,
+    );
     attachCanvas(width: number, height: number, canvas: HTMLCanvasElement): void;
     quit(): void;
     getClient(): Nvim;
@@ -340,14 +383,19 @@ export class Neovim extends EventEmitter {
 }
 
 export class NeovimElement extends HTMLElement {
+    disableAltKey: boolean;
+    drawDelay: number;
     editor: Neovim;
     width: number;
     height: number;
     fontSize: number;
     font: string;
     lineHeight: number;
+    noBlinkCursor: boolean;
+    windowTitle: string;
     nvimCmd: string;
     argv: string[];
     onProcessAttached: () => void;
     onQuit: () => void;
+    onError: (err: Error) => void;
 }

@@ -4,6 +4,9 @@ const jsdom = require('jsdom').jsdom;
 const NeovimStore = require('../../src/out/neovim/store').default;
 const NeovimInput = require('../../src/out/neovim/input').default;
 
+(function(){
+var window;
+
 function keydownEvent(opts) {
     const o = opts || {};
     if (o.keyCode) {
@@ -52,7 +55,7 @@ describe('NeovimInput', () => {
         global.document = jsdom('<body><input class="neovim-input"/></body>');
         global.input_element = document.querySelector('.neovim-input');
         input_element.value = '';
-        global.window = document.defaultView;
+        window = document.defaultView;
         const s = new NeovimStore();
         /* eslint no-unused-vars:0 */
         global.input = new NeovimInput(s);
@@ -62,9 +65,13 @@ describe('NeovimInput', () => {
         });
     });
 
+    beforeEach(() => {
+        global.input.store.alt_key_disabled = false;
+        global.input.store.meta_key_disabled = false;
+    });
+
     after(() => {
         delete global.document;
-        delete global.window;
         delete global.input;
         delete global.input_element;
     });
@@ -91,10 +98,9 @@ describe('NeovimInput', () => {
         });
 
         it('accepts input with ctrl key', () => {
-            assert.equal(inputByKeydown({key: '\u0001', ctrlKey: true}), '\u0001');  // <C-a>
-            assert.equal(inputByKeydown({key: '\u000f', ctrlKey: true}), '\u000f');  // <C-o>
-            // Note: Ctrl key input is omitted in many Ctrl+{number} or Ctrl+{sign} sequences.
-            assert.equal(inputByKeydown({key: '3', ctrlKey: true}), '3');
+            assert.equal(inputByKeydown({key: 'a', ctrlKey: true}), '<C-a>');
+            assert.equal(inputByKeydown({key: 'o', ctrlKey: true}), '<C-o>');
+            assert.equal(inputByKeydown({key: '3', ctrlKey: true}), '<C-3>');
         });
 
         it('accepts input with alt key', () => {
@@ -104,13 +110,14 @@ describe('NeovimInput', () => {
         });
 
         it('accepts input with alt+ctrl keys', () => {
-            if (process.platform === 'darwin') {
-                assert.equal(inputByKeydown({key: 'a', ctrlKey: true, altKey: 'true'}), '<C-A-a>');
-                assert.equal(inputByKeydown({key: 'o', ctrlKey: true, altKey: 'true'}), '<C-A-o>');
-            } else {
-                assert.equal(inputByKeydown({key: '\u0001', ctrlKey: true, altKey: 'true'}), '<A-\u0001>');  // Ctrl is included in \u0001
-                assert.equal(inputByKeydown({key: '\u000f', ctrlKey: true, altKey: 'true'}), '<A-\u000f>');  // Ctrl is included in \u000f
-            }
+            assert.equal(inputByKeydown({key: 'a', ctrlKey: true, altKey: true}), '<C-A-a>');  // Ctrl is included in \u0001
+            assert.equal(inputByKeydown({key: 'o', ctrlKey: true, altKey: true}), '<C-A-o>');  // Ctrl is included in \u000f
+        });
+
+        it('accepts input with command keys', () => {
+            assert.equal(inputByKeydown({key: 'a', metaKey: true}), '<D-a>');
+            assert.equal(inputByKeydown({key: 'a', metaKey: true, ctrlKey: true}), '<C-D-a>');
+            assert.equal(inputByKeydown({key: 'a', metaKey: true, shiftKey: true}), '<D-S-a>');
         });
 
         it('accepts special keys', () => {
@@ -123,8 +130,8 @@ describe('NeovimInput', () => {
             assert.equal(inputByKeydown({key: 'ArrowLeft'}), '<Left>');
             assert.equal(inputByKeydown({key: 'ArrowLeft', altKey: true}), '<A-Left>');
             assert.equal(inputByKeydown({key: 'ArrowLeft', ctrlKey: true, shiftKey: true}), '<C-S-Left>');
-            assert.equal(inputByKeydown({key: '<', shiftKey: true}), '<LT>');
             assert.equal(inputByKeydown({key: '<', ctrlKey: true, shiftKey: true}), '<C-LT>');
+            assert.equal(inputByKeydown({key: '<', altKey: true, shiftKey: true}), '<A-LT>');
             assert.equal(inputByKeydown({key: '\0'}), '<Nul>');
         });
 
@@ -145,6 +152,79 @@ describe('NeovimInput', () => {
             assert.equal(inputByKeydown({key: 'Tab', keyCode: 73, ctrlKey: true}), '<C-i>');
             assert.equal(inputByKeydown({key: 'Tab', keyCode: 9, ctrlKey: true}), '<C-Tab>');
         });
+
+        it('replaces some special Ctrl+Shift characters following gVim behavior (issue #87)', () => {
+            assert.equal(inputByKeydown({key: '2', keyCode: 50, ctrlKey: true}), '<C-@>');
+            assert.equal(inputByKeydown({key: '6', keyCode: 54, ctrlKey: true}), '<C-^>');
+            assert.equal(inputByKeydown({key: '-', keyCode: 189, ctrlKey: true}), '<C-_>');
+        });
+
+        it("handles ' ' edge case", () => {
+            assert.equal(inputByKeydown({key: ' ', keyCode: 32}), '<Space>');
+            assert.equal(inputByKeydown({key: ' ', keyCode: 32, ctrlKey: true}), '<C-Space>');
+            assert.equal(inputByKeydown({key: ' ', keyCode: 32, shiftKey: true}), '<S-Space>');
+        });
+
+        context('when alt key is disabled', () => {
+            it('ignores event.altKey', () => {
+                global.input.store.alt_key_disabled = true;
+                global.last_input = '';
+
+                dispatchKeydown({key: 'a', altKey: true});
+                assert.equal(last_input, 'a');
+
+                assert.equal(inputByKeydown({key: 'a', altKey: true, ctrlKey: true}), '<C-a>');
+                assert.equal(inputByKeydown({key: 'o', altKey: true, shiftKey: true, ctrlKey: true}), '<C-S-o>');
+            });
+
+            it('does not ignore any other modifiers', () => {
+                global.input.store.alt_key_disabled = true;
+                global.last_input = '';
+
+                dispatchKeydown({key: 'a'});
+                assert.equal(last_input, '');
+
+                assert.equal(inputByKeydown({key: 'a', ctrlKey: true}), '<C-a>');
+                assert.equal(inputByKeydown({key: 'o', ctrlKey: true, shiftKey: true}), '<C-S-o>');
+            });
+        });
+
+        context('when meta key is disabled', () => {
+            it('ignores event.metaKey', () => {
+                global.input.store.meta_key_disabled = true;
+                global.last_input = '';
+
+                dispatchKeydown({key: 'a', metaKey: true});
+                assert.equal(last_input, '');
+                dispatchKeydown({key: 'a', altKey: true, shiftKey: true, ctrlKey: true, metaKey: true});
+                assert.equal(last_input, '');
+            });
+
+            it('does not ignore any other modifiers', () => {
+                global.input.store.meta_key_disabled = true;
+                global.last_input = '';
+
+                dispatchKeydown({key: 'a'});
+                assert.equal(last_input, '');
+
+                assert.equal(inputByKeydown({key: 'Enter', ctrlKey: true}), '<C-CR>');
+                assert.equal(inputByKeydown({key: 'o', altKey: true, ctrlKey: true, shiftKey: true}), '<C-A-S-o>');
+            });
+        });
+
+        context('when shift key is pressed', () => {
+            it('considers shift key on alphabetical key input', () => {
+                assert.equal(inputByKeydown({key: 'a', shiftKey: true, ctrlKey: true}), '<C-S-a>');
+                assert.equal(inputByKeydown({key: 'P', shiftKey: true, ctrlKey: true}), '<C-S-P>');
+                assert.equal(inputByKeydown({key: 'q', shiftKey: true, altKey: true}), '<A-S-q>');
+            });
+
+            it('does not consider shift key on non-slphabetical key input', () => {
+                assert.equal(inputByKeydown({key: '@', shiftKey: true, ctrlKey: true}), '<C-@>');
+                assert.equal(inputByKeydown({key: '{', shiftKey: true, ctrlKey: true}), '<C-{>');
+                assert.equal(inputByKeydown({key: ']', shiftKey: true, ctrlKey: true}), '<C-]>');
+            });
+        });
     });
 
     context("on 'input' event", () => {
@@ -160,6 +240,44 @@ describe('NeovimInput', () => {
             dispatchInputEvent();
             assert.equal(global.input_element.value, '');
         });
+
+        it("handles '<' edge case", () => {
+            assert.equal(catchInputOnInputEvent('<'), '<LT>');
+        });
+    });
+
+    context("on focus events", () => {
+        it('emits <FocusGained> on focused', () => {
+            const e = new window.Event('focus', {
+                bubbles: true,
+                cancelable: false
+            });
+            global.input_element.dispatchEvent(e);
+            assert.equal(global.last_input, '<FocusGained>');
+        });
+
+        it('emits <FocusLost> on focused', () => {
+            const e = new window.Event('blur', {
+                bubbles: true,
+                cancelable: false
+            });
+            global.input_element.dispatchEvent(e);
+            assert.equal(global.last_input, '<FocusLost>');
+        });
+    });
+
+    it('moves <input> element following cursor', () => {
+        const store = input.store;
+        store.cursor = {
+            line: 12,
+            col: 24
+        };
+        store.font_attr.width = 4;
+        store.font_attr.height = 8;
+
+        store.emit('cursor');
+        assert.equal(input_element.style.left, store.cursor.col * store.font_attr.width + 'px');
+        assert.equal(input_element.style.top, store.cursor.line * store.font_attr.height + 'px');
     });
 });
-
+})();

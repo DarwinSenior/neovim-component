@@ -1,11 +1,8 @@
 {
   "name": "neovim-component",
-  "version": "0.4.0",
+  "version": "0.8.2",
   "description": "Polymer component for Neovim frontend",
   "main": "example/minimal/main.js",
-  "bin": {
-    "nvim-md-example": "./example/minimal/cli.js"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/rhysd/neovim-component.git"
@@ -14,14 +11,14 @@
     "url": "https://github.com/rhysd/neovim-component/issues"
   },
   "scripts": {
-    "all":     "npm run dep && npm run build && npm run example",
-    "build":   "tsc -p src && browserify -o build/index.js src/out/index.js",
-    "debug":   "NODE_ENV=debug electron .",
-    "dep":     "npm install && bower install && typings install && mkdir -p $(npm prefix)/build",
+    "start": "npm run dep && npm run build && npm run example",
+    "build": "tsc --pretty -p src && browserify -o build/index.js src/out/index.js",
+    "debug": "ELECTRON_ENABLE_STACK_DUMPING=true NODE_ENV=debug electron .",
+    "dep": "npm install && bower install && typings install && mkdir -p build",
     "example": "electron .",
-    "lint":    "tslint $(git ls-files | grep -E \"\\.ts$\")",
-    "watch":   "cd \"$(npm prefix)\" && guard --watchdir src test",
-    "test":    "cd \"$(npm prefix)\" && mocha test/unit/ test/e2e/"
+    "lint": "tslint $(git ls-files | grep -E \"\\.ts$\")",
+    "watch": "guard --watchdir src test",
+    "test": "mocha test/unit/"
   },
   "keywords": [
     "neovim",
@@ -34,21 +31,22 @@
   "author": "rhysd <lin90162@yahoo.co.jp>",
   "license": "MIT",
   "dependencies": {
-    "flux": "^2.1.1",
-    "loglevel": "^1.4.0",
-    "promised-neovim-client": "^1.0.0"
+    "flux": "^3.0.0",
+    "loglevel": "^1.4.1",
+    "promised-neovim-client": "^2.0.2"
   },
   "devDependencies": {
-    "bower": "^1.7.1",
-    "browserify": "^12.0.1",
-    "chai": "^3.4.1",
-    "electron-prebuilt": "^0.36.4",
-    "jsdom": "^7.2.2",
-    "mocha": "^2.3.4",
+    "bower": "^1.7.9",
+    "browserify": "^13.1.0",
+    "canvas": "^1.5.0",
+    "chai": "^3.5.0",
+    "electron-prebuilt": "~1.4.3",
+    "jsdom": "^8.4.0",
+    "mocha": "^3.1.2",
     "mocha-generators": "^1.2.0",
     "nightmare": "https://github.com/rhysd/nightmare.git#custom-electron-path",
-    "tslint": "^3.2.2",
-    "typescript": "^1.7.5",
-    "typings": "^0.6.2"
+    "tslint": "^3.15.1",
+    "typescript": "^2.0.3",
+    "typings": "^1.4.0"
   }
 }

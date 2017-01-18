@@ -26,9 +26,30 @@ Polymer({
             type: Array,
             value: () => [] as string[],
         },
+        disableAltKey: {
+            type: Boolean,
+            value: false,
+        },
+        disableMetaKey: {
+            type: Boolean,
+            value: false,
+        },
+        cursorDrawDelay: {
+            type: Number,
+            value: 10,
+        },
+        noBlinkCursor: {
+            type: Boolean,
+            value: false,
+        },
+        windowTitle: {
+            type: String,
+            value: 'Neovim',
+        },
         editor: Object,
         onProcessAttached: Object,
         onQuit: Object,
+        onError: Object,
         resizeHandler: Object,
     },
 
@@ -38,9 +59,18 @@ Polymer({
                 this.argv,
                 this.font,
                 this.fontSize,
-                this.lineHeight
+                this.lineHeight,
+                this.disableAltKey,
+                this.disableMetaKey,
+                this.cursorDrawDelay,
+                !this.noBlinkCursor,
+                this.windowTitle,
             );
         this.resizeHandler = null;
+
+        if (this.onError) {
+            this.editor.on('error', this.onError);
+        }
 
         if (this.onQuit) {
             this.editor.on('quit', this.onQuit);

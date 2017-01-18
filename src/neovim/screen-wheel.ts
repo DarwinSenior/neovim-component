@@ -25,12 +25,11 @@ export default class ScreenWheel {
     }
 
     handleEvent(e: WheelEvent) {
-        if (this.shift !== e.shiftKey || this.ctrl !== e.ctrlKey) {
-            this.x = 0;
-            this.y = 0;
-            this.shift = e.shiftKey;
-            this.ctrl = e.ctrlKey;
-            return '';
+        if ((this.shift === undefined && this.ctrl === undefined) ||
+            (this.shift !== e.shiftKey || this.ctrl !== e.ctrlKey)) {
+            // Note:
+            // Initialize at first or reset on modifier change
+            this.reset(e.shiftKey, e.ctrlKey);
         }
 
         this.x += e.deltaX;
@@ -44,41 +43,44 @@ export default class ScreenWheel {
             return '';
         }
 
-        const input = this.getInput(scroll_x, scroll_y);
-        log.debug(`Scroll (${scroll_x}, ${scroll_y})`);
+        const col  = Math.floor(e.offsetX / this.store.font_attr.width);
+        const line = Math.floor(e.offsetY / this.store.font_attr.height);
+
+        const input = this.getInput(scroll_x, scroll_y, line, col);
+        log.debug(`Scroll (${scroll_x}, ${scroll_y}) at (${line}, ${col}): ${input}`);
         this.reset();
         return input;
     }
 
-    private reset() {
+    private reset(shift?: boolean, ctrl?: boolean) {
         this.x = 0;
         this.y = 0;
-        this.shift = false;
-        this.ctrl = false;
+        this.shift = shift;
+        this.ctrl = ctrl;
     }
 
-    private getDirection(scroll_x: number, scroll_y: number) {
-        if (scroll_y !== 0) {
-            return scroll_y > 0 ? 'Down' : 'Up';
-        } else if (scroll_x !== 0) {
-            return scroll_x > 0 ? 'Left' : 'Right';
-        } else {
-            // Note: Never reach here
-            log.error('Null scrolling');
-            return '';
-        }
-    }
-
-    private getInput(scroll_x: number, scroll_y: number) {
-        let seq = '<';
+    private getInput(scroll_x: number, scroll_y: number, line: number, col: number) {
+        const pos = `<${col},${line}>`;
+        let modifier = '<';
         if (this.ctrl) {
-            seq += 'C-';
+            modifier += 'C-';
         }
         if (this.shift) {
-            seq += 'S-';
+            modifier += 'S-';
         }
-        seq += `ScrollWheel${this.getDirection(scroll_x, scroll_y)}>`;
-        seq += `<${scroll_x},${scroll_y}>`; // This is really needed?
+
+        let seq = '';
+
+        const y_dir = scroll_y > 0 ? 'Down' : 'Up';
+        for (let _ = 0; _ < Math.abs(scroll_y); ++_) {
+            seq += `${modifier}ScrollWheel${y_dir}>${pos}`;
+        }
+
+        const x_dir = scroll_x > 0 ? 'Left' : 'Right';
+        for (let _ = 0; _ < Math.abs(scroll_x); ++_) {
+            seq += `${modifier}ScrollWheel${x_dir}>${pos}`;
+        }
+
         return seq;
     }
 }

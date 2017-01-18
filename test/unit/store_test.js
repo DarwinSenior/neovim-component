@@ -1,4 +1,5 @@
 global.require = require;
+global.window = global;
 const assert = require('chai').assert;
 const jsdom = require('jsdom').jsdom;
 const A = require('../../src/out/neovim/actions');
@@ -19,6 +20,7 @@ describe('NeovimStore', () => {
             assert.deepEqual(s.font_attr, {
                 fg: 'white',
                 bg: 'black',
+                sp: null,
                 bold: false,
                 italic: false,
                 underline: false,
@@ -38,7 +40,7 @@ describe('NeovimStore', () => {
             assert.isFalse(s.busy);
             assert.isTrue(s.mouse_enabled);
             assert.isNull(s.dragging);
-            assert.equal(s.title, 'Neovim');
+            assert.equal(s.title, '');
             assert.equal(s.icon_path, '');
             assert.deepEqual(s.wheel_scrolling, new ScreenWheel(s));
             assert.deepEqual(s.scroll_region, {
@@ -49,6 +51,11 @@ describe('NeovimStore', () => {
             });
             assert.isTrue(s.focused);
             assert.equal(s.line_height, 1.2);
+            assert.equal(s.alt_key_disabled, false);
+            assert.equal(s.meta_key_disabled, false);
+            assert.equal(s.cursor_draw_delay, 10);
+            assert.equal(s.blink_cursor, false);
+            assert.equal(s.cursor_blink_interval, 1000);
         });
     });
 
@@ -99,6 +106,7 @@ describe('NeovimStore', () => {
                 bg: 'white',
                 bold: false,
                 fg: 'black',
+                special: 0x111111,
                 foreground: 0x333333,
                 italic: true,
                 reverse: false,
@@ -113,6 +121,7 @@ describe('NeovimStore', () => {
             assert.isFalse(f.underline, 'underline');
             assert.equal(f.bg, '#ffffff');
             assert.equal(f.fg, '#333333');
+            assert.equal(f.sp, '#111111');
 
             const hl2 = {
                 background: 0xffffff,
@@ -126,6 +135,7 @@ describe('NeovimStore', () => {
             assert.isUndefined(f.undercurl, 'undercurl');
             assert.isUndefined(f.underline, 'underline');
             assert.equal(f.bg, '#333333');
+            assert.equal(f.fg, '#ffffff');
             assert.equal(f.fg, '#ffffff');
         });
 
@@ -244,6 +254,17 @@ describe('NeovimStore', () => {
             s.dispatcher.dispatch(A.updateBackground(0x123456));
             assert.isTrue(flag, 'update-bg event was not fired');
             assert.equal(s.bg_color, '#123456');
+        });
+
+        it('handles update-sp event', () => {
+            const s = new NeovimStore();
+            var flag = false;
+            s.on('update-sp-color', () => {
+                flag = true;
+            });
+            s.dispatcher.dispatch(A.updateSpecialColor(0x123456));
+            assert.isTrue(flag, 'update-sp event was not fired');
+            assert.equal(s.sp_color, '#123456');
         });
 
         it('handles mode event', () => {
@@ -508,7 +529,7 @@ describe('NeovimStore', () => {
             assert.isTrue(flag, 'visual-beep event was not fired');
         });
 
-        it('handles beep event', () => {
+        it('handles title-changed event', () => {
             const s = new NeovimStore();
 
             var flag = false;
@@ -576,5 +597,64 @@ describe('NeovimStore', () => {
             assert.equal(s.line_height, 1.5);
         });
 
+        it('accepts disabling alt key event', () => {
+            const s = new NeovimStore();
+            var flag = false;
+            s.on('alt-key-disabled', () => {
+                flag = true;
+            });
+            s.dispatcher.dispatch(A.disableAltKey(true));
+            assert.isTrue(flag, 'alt-key-disabled event was not fired');
+            assert.equal(s.alt_key_disabled, true);
+        });
+
+        it('switches to disable/enable meta key', () => {
+            const s = new NeovimStore();
+            var flag = false;
+            s.on('meta-key-disabled', () => {
+                flag = true;
+            });
+            s.dispatcher.dispatch(A.disableMetaKey(true));
+            assert.isTrue(flag, 'meta-key-disabled event was not fired');
+            assert.equal(s.meta_key_disabled, true);
+            s.dispatcher.dispatch(A.disableMetaKey(false));
+            assert.equal(s.meta_key_disabled, false);
+        });
+
+        it('accepts cursor draw delay change event', () => {
+            const s = new NeovimStore();
+            var flag = false;
+            s.on('cursor-draw-delay-changed', () => {
+                flag = true;
+            });
+            s.dispatcher.dispatch(A.changeCursorDrawDelay(0));
+            assert.isTrue(flag, 'cursor-draw-delay-changed event was not fired');
+            assert.equal(s.cursor_draw_delay, 0);
+        });
+
+        it('accepts cursor blinking event', () => {
+            const s = new NeovimStore();
+            var flag = false;
+
+            s.on('blink-cursor-stopped', () => {
+                flag = true;
+            });
+            s.dispatcher.dispatch(A.startBlinkCursor());
+            s.dispatcher.dispatch(A.stopBlinkCursor());
+            assert.isTrue(flag, 'blink-cursor-stopped event was not fired');
+            flag = false;
+            s.dispatcher.dispatch(A.stopBlinkCursor());
+            assert.isFalse(flag, 'blink-cursor-stopped event was incorrectly fired because cursor blinking state did not change');
+
+            flag = false;
+            s.on('blink-cursor-started', () => {
+                flag = true;
+            });
+            s.dispatcher.dispatch(A.startBlinkCursor());
+            assert.isTrue(flag, 'blink-cursor-started event was not fired');
+            flag = false;
+            s.dispatcher.dispatch(A.startBlinkCursor());
+            assert.isFalse(flag, 'blink-cursor-started event was incorrectly fired because cursor blinking state did not change');
+        });
     });
 });

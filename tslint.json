@@ -3,7 +3,6 @@
     "align": [
       true,
       "parameters",
-      "arguments",
       "statements"
     ],
     "ban": false,
@@ -108,9 +107,7 @@
       }
     ],
     "use-strict": [
-      true,
-      "check-module",
-      "check-function"
+      false
     ],
     "variable-name": [
       false,
@@ -122,7 +119,6 @@
       true,
       "check-branch",
       "check-decl",
-      "check-operator",
       "check-separator",
       "check-type"
     ]

@@ -25,26 +25,47 @@ export default class NeovimProcess {
     client: NvimClient.Nvim;
     started: boolean;
 
-    constructor(private store: NeovimStore, public command: string, public argv: string[]) {
+    constructor(
+        private store: NeovimStore,
+        public command: string,
+        public argv: string[]
+    ) {
         this.started = false;
-        this.argv.push('--embed');
+        this.argv.unshift('--embed');
     }
 
     attach(lines: number, columns: number) {
-        this.neovim_process = child_process.spawn(this.command, this.argv, {stdio: ['pipe', 'pipe', process.stderr]});
+        let err: Error = null;
         this.client = null;
+
+        this.neovim_process
+            = child_process.spawn(
+                this.command,
+                this.argv,
+                {stdio: ['pipe', 'pipe', process.stderr]}
+            );
+        this.neovim_process.on('error', (e: Error) => { err = e; });
+
+        if (err || this.neovim_process.pid === undefined) {
+            return Promise.reject(err || new Error('Failed to spawn process: ' + this.command));
+        }
+
         return attach(this.neovim_process.stdin, this.neovim_process.stdout)
             .then(nvim => {
                 this.client = nvim;
                 nvim.on('request', this.onRequested.bind(this));
                 nvim.on('notification', this.onNotified.bind(this));
                 nvim.on('disconnect', this.onDisconnected.bind(this));
-                nvim.uiAttach(columns, lines, true);
+                nvim.uiAttach(columns, lines, true, true /*notify*/);
                 this.started = true;
                 log.info(`nvim attached: ${this.neovim_process.pid} ${lines}x${columns} ${JSON.stringify(this.argv)}`);
                 this.store.on('input', (i: string) => nvim.input(i));
                 this.store.on('update-screen-bounds', () => nvim.uiTryResize(this.store.size.cols, this.store.size.lines));
-            }).catch(err => log.error(err));
+
+                // Note:
+                // Neovim frontend has responsiblity to emit 'GUIEnter' on initialization.
+                this.client.command('doautocmd <nomodeline> GUIEnter');
+            });
     }
 
     onRequested(method: string, args: RPCValue[], response: RPCValue) {
@@ -65,14 +86,15 @@ export default class NeovimProcess {
         // TODO:
         // Uncomment below line to close window on quit.
         // I don't do yet for debug.
-        // global.require('remote').getCurrentWindow().close();
+        // global.require('electron').remote.getCurrentWindow().close();
         this.started = false;
     }
 
     finalize() {
-        this.client.uiDetach();
-        this.client.quit();
-        this.started = false;
+        return this.client.uiDetach().then(() => {
+            this.client.quit();
+            this.started = false;
+        });
     }
 
     private redraw(events: RPCValue[][]) {
@@ -131,6 +153,9 @@ export default class NeovimProcess {
                     break;
                 case 'update_bg':
                     d.dispatch(Action.updateBackground(args[0] as number));
+                    break;
+                case 'update_sp':
+                    d.dispatch(Action.updateSpecialColor(args[0] as number));
                     break;
                 case 'mode_change':
                     d.dispatch(Action.changeMode(args[0] as string));
